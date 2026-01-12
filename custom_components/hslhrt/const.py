@@ -66,6 +66,22 @@ STOP_ID_QUERY = """
     }
 	"""
 
+STOP_ID_BY_GTFS_QUERY = """ 
+	query ($ids: [String!]) { 
+		stops(ids: $ids) { 
+			name 
+			code 
+			gtfsId 
+			routes { 
+				shortName 
+				patterns { 
+					headsign 
+				} 
+			} 
+		}
+	}
+	"""
+
 STOP_CHECK_QUERY = """
     query ($id: String!) {
         stop (id: $id) {
@@ -77,6 +93,8 @@ STOP_CHECK_QUERY = """
         }
     }
 	"""
+
+
 
 ROUTE_QUERY_WITH_RANGE = """
     query ($id: String!, $current_epoch: Long!, $sec_left_in_day: Int!) {
