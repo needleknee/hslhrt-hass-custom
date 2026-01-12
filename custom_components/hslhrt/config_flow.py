@@ -281,5 +281,11 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=data_schema,
+            description_placeholders={ 
+                "info": ( 
+                    "Provide a stop name or GTFS ID. Stop codes are deprecated and "   
+                    "no longer supported by the Routing API v2." 
+                ) 
+            },
             errors=errors,
         )
