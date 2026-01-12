@@ -29,9 +29,6 @@ from .const import (
 
 api_key = None
 
-STOP_CODE_REGEX = re.compile(r"^[A-Z]\d{4}$") 
-GTFS_ID_REGEX = re.compile(r"^HSL:\d+$")
-
 
 async def validate_user_config(hass: core.HomeAssistant, data):
     """Validate input configuration for HSL HRT."""
@@ -62,51 +59,58 @@ async def validate_user_config(hass: core.HomeAssistant, data):
         }
 
     #
-    # STEP 1 — Detect input type
+    # Detect input type
     #
+    GTFS_ID_REGEX = re.compile(r"^HSL:\d+$")
     is_gtfs_id = GTFS_ID_REGEX.match(name_code)
-    is_stop_code = STOP_CODE_REGEX.match(name_code)
 
     #
-    # STEP 2 — Resolve stop code → GTFS ID via REST
+    # GTFS ID directly → GraphQL ids:
     #
-    if is_stop_code:
-        url = f"https://api.digitransit.fi/routing/v2/hsl/stops?code={name_code}"
-        headers = {
-            "digitransit-subscription-key": apikey,
-            "Ocp-Apim-Subscription-Key": apikey,
-            "Accept": "application/json",
-        }
+    if is_gtfs_id:
+        stop_gtfs = name_code
+        variables = {"ids": [stop_gtfs]}
+        query = STOP_ID_BY_GTFS_QUERY
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                if resp.status != 200:
-                    return {
-                        STOP_CODE: None,
-                        STOP_NAME: None,
-                        STOP_GTFS: None,
-                        ROUTE: None,
-                        DESTINATION: None,
-                        ERROR: "invalid_name_code",
-                        APIKEY: apikey,
-                    }
+        graph_client.headers["digitransit-subscription-key"] = apikey
+        graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
+        graph_client.headers["Accept"] = "application/json"
 
-                json_data = await resp.json()
-                if not json_data:
-                    return {
-                        STOP_CODE: None,
-                        STOP_NAME: None,
-                        STOP_GTFS: None,
-                        ROUTE: None,
-                        DESTINATION: None,
-                        ERROR: "invalid_name_code",
-                        APIKEY: apikey,
-                    }
+        hsl_data = await graph_client.execute_async(query=query, variables=variables)
+        stops_data = hsl_data.get("data", {}).get("stops", [])
 
-                resolved = json_data[0]
-                stop_gtfs = resolved["gtfsId"]
-                stop_name = resolved["name"]
-                stop_code = resolved["code"]
+    #
+    # NAME SEARCH (default)
+    #
+    else:
+         stop_gtfs = name_code
+         stops_data = []
+         for attempt in (name_code, name_code.upper(), name_code.lower()):
+             variables = {VAR_NAME_CODE: attempt}
+
+             graph_client.headers["digitransit-subscription-key"] = apikey
+             graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
+             graph_client.headers["Accept"] = "application/json"
+
+             hsl_data = await graph_client.execute_async(
+                 query=STOP_ID_QUERY, variables=variables
+             )
+
+             stops_data = hsl_data.get("data", {}).get("stops", [])
+             if stops_data:
+                 break
+
+         if not stops_data:
+             return {
+                 STOP_CODE: None,
+                 STOP_NAME: None,
+                 STOP_GTFS: None,
+                 ROUTE: None,
+                 DESTINATION: None,
+                 ERROR: "invalid_name_code",
+                 APIKEY: apikey,
+             }
+
 
         # Now we will query GraphQL using ids:
         variables = {"ids": [stop_gtfs]}
