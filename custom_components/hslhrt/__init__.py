@@ -72,6 +72,13 @@ async def async_setup_entry(hass, config_entry) -> bool:
 
     undo_listener = config_entry.add_update_listener(update_listener)
 
+    if APIKEY not in hass.data[DOMAIN]: 
+        hass.data[DOMAIN][APIKEY] = config_entry.data[APIKEY]
+    else:
+        if APIKEY not in config_entry.data:
+            new_data = {**config_entry.data, APIKEY: hass.data[DOMAIN][APIKEY]}
+            hass.config_entries.async_update_entry(config_entry, data=new_data)
+    
     hass.data[DOMAIN][config_entry.entry_id] = {
         COORDINATOR: coordinator,
         UNDO_UPDATE_LISTENER: undo_listener,
