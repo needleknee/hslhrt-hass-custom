@@ -83,35 +83,35 @@ async def validate_user_config(hass: core.HomeAssistant, data):
     # NAME SEARCH (default)
     #
     else:
-         stop_gtfs = name_code
-         stops_data = []
-         for attempt in (name_code, name_code.upper(), name_code.lower()):
-             variables = {VAR_NAME_CODE: attempt}
+        stop_gtfs = name_code
+        stops_data = []
+        for attempt in (name_code, name_code.upper(), name_code.lower()):
+            variables = {VAR_NAME_CODE: attempt}
 
-             graph_client.headers["digitransit-subscription-key"] = apikey
-             graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
-             graph_client.headers["Accept"] = "application/json"
+            graph_client.headers["digitransit-subscription-key"] = apikey
+            graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
+            graph_client.headers["Accept"] = "application/json"
 
-             hsl_data = await graph_client.execute_async(
-                 query=STOP_ID_QUERY, variables=variables
-             )
+            hsl_data = await graph_client.execute_async(
+                query=STOP_ID_QUERY, variables=variables
+            )
 
-             stops_data = hsl_data.get("data", {}).get("stops", [])
-             if stops_data:
-                 break
+            stops_data = hsl_data.get("data", {}).get("stops", [])
+            if stops_data:
+                break
 
-         if not stops_data:
-             return {
-                 STOP_CODE: None,
-                 STOP_NAME: None,
-                 STOP_GTFS: None,
-                 ROUTE: None,
-                 DESTINATION: None,
-                 ERROR: "invalid_name_code",
-                 APIKEY: apikey,
-             }
-
-
+        if not stops_data:
+            return {
+                STOP_CODE: None,
+                STOP_NAME: None,
+                STOP_GTFS: None,
+                ROUTE: None,
+                DESTINATION: None,
+                ERROR: "invalid_name_code",
+                APIKEY: apikey,
+            }
+        
+        
         # Now we will query GraphQL using ids:
         variables = {"ids": [stop_gtfs]}
         query = """
