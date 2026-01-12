@@ -207,85 +207,133 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Handle user step."""
-        # Display an option for the user to provide Stop Name/Code for the integration
         errors = {}
         valid = {}
-
+    
+        # Check if API key already exists globally
+        existing_key = self.hass.data.get(DOMAIN, {}).get(APIKEY)
+    
         if user_input is not None:
+            # Inject stored API key if user didn't provide one
+            if APIKEY not in user_input and existing_key:
+                user_input[APIKEY] = existing_key
+    
             valid = await validate_user_config(self.hass, user_input)
+    
             await self.async_set_unique_id(
                 base_unique_id(valid[STOP_GTFS], valid[ROUTE], valid[DESTINATION])
             )
             self._abort_if_unique_id_configured()
+    
             if valid.get(ERROR, "") == "":
                 title = ""
                 if valid[ROUTE] is not None:
                     title = f"{valid[STOP_NAME]}({valid[STOP_CODE]}) {valid[ROUTE]}"
                 elif valid[DESTINATION] is not None:
-                    title = (
-                        f"{valid[STOP_NAME]}({valid[STOP_CODE]}) {valid[DESTINATION]}"
-                    )
+                    title = f"{valid[STOP_NAME]}({valid[STOP_CODE]}) {valid[DESTINATION]}"
                 else:
                     title = f"{valid[STOP_NAME]}({valid[STOP_CODE]}) ALL"
+    
                 return self.async_create_entry(title=title, data=valid)
-            else:
-                reason = valid.get(ERROR, "Configuration Error!")
-                _LOGGER.error(reason)
-                return self.async_abort(reason=reason)
-
-        data_schema = vol.Schema(
-            {
-                vol.Required(
-                    NAME_CODE,
-                    description={
-                        "suggested_value": "",
-                        "description": (
-                            "Enter a stop name (e.g. 'Kuusisaarentie') or a GTFS ID "
-                            "(e.g. 'HSL:1303298'). Stop codes like 'H1415' are no longer supported."
-                        )
-                    },
-                ): str,
-                vol.Required(
-                    ROUTE,
-                    description={
-                        "suggested_value": "ALL",
-                        "description": (
-                            "Optional: Filter by route short name (e.g. '550'). "
-                            "Use 'ALL' to include all routes."
-                        )
-                    },
-                ): str,
-                vol.Required(
-                    DESTINATION,
-                    description={
-                        "suggested_value": "ALL",
-                        "description": (
-                            "Optional: Filter by destination headsign (e.g. 'Itäkeskus'). "
-                            "Use 'ALL' to include all destinations."
-                        )
-                    },
-                ): str,
-                vol.Required(
-                    APIKEY,
-                    description={
-                        "suggested_value": "",
-                        "description": (
-                            "Enter your Digitransit API key. You can create one at "
-                            "https://portal-api.digitransit.fi/"
-                        )
-                    },
-                ): str,
-            }
-        )
-
+    
+            reason = valid.get(ERROR, "Configuration Error!")
+            _LOGGER.error(reason)
+            return self.async_abort(reason=reason)
+    
+        #
+        # Build schema dynamically depending on whether API key is known
+        #
+        if existing_key:
+            # API key already stored → do NOT ask again
+            data_schema = vol.Schema(
+                {
+                    vol.Required(
+                        NAME_CODE,
+                        description={
+                            "suggested_value": "",
+                            "description": (
+                                "Enter a stop name (e.g. 'Kuusisaarentie') or a GTFS ID "
+                                "(e.g. 'HSL:1303298'). Stop codes like 'H1415' are no longer supported."
+                            )
+                        },
+                    ): str,
+                    vol.Required(
+                        ROUTE,
+                        description={
+                            "suggested_value": "ALL",
+                            "description": (
+                                "Optional: Filter by route short name (e.g. '550'). "
+                                "Use 'ALL' to include all routes."
+                            )
+                        },
+                    ): str,
+                    vol.Required(
+                        DESTINATION,
+                        description={
+                            "suggested_value": "ALL",
+                            "description": (
+                                "Optional: Filter by destination headsign (e.g. 'Itäkeskus'). "
+                                "Use 'ALL' to include all destinations."
+                            )
+                        },
+                    ): str,
+                }
+            )
+        else:
+            # First time → ask for API key
+            data_schema = vol.Schema(
+                {
+                    vol.Required(
+                        NAME_CODE,
+                        description={
+                            "suggested_value": "",
+                            "description": (
+                                "Enter a stop name (e.g. 'Kuusisaarentie') or a GTFS ID "
+                                "(e.g. 'HSL:1303298'). Stop codes like 'H1415' are no longer supported."
+                            )
+                        },
+                    ): str,
+                    vol.Required(
+                        ROUTE,
+                        description={
+                            "suggested_value": "ALL",
+                            "description": (
+                                "Optional: Filter by route short name (e.g. '550'). "
+                                "Use 'ALL' to include all routes."
+                            )
+                        },
+                    ): str,
+                    vol.Required(
+                        DESTINATION,
+                        description={
+                            "suggested_value": "ALL",
+                            "description": (
+                                "Optional: Filter by destination headsign (e.g. 'Itäkeskus'). "
+                                "Use 'ALL' to include all destinations."
+                            )
+                        },
+                    ): str,
+                    vol.Required(
+                        APIKEY,
+                        description={
+                            "suggested_value": "",
+                            "description": (
+                                "Enter your Digitransit API key. You can create one at "
+                                "https://portal-api.digitransit.fi/"
+                            )
+                        },
+                    ): str,
+                }
+            )
+    
         return self.async_show_form(
             step_id="user",
             data_schema=data_schema,
-            description_placeholders={ 
-                "info": ( 
-                    "Provide a stop name or GTFS ID. Stop codes are deprecated and "   
-                    "no longer supported by the Routing API v2." 
-                ) 
+            description_placeholders={
+                "info": (
+                    "Provide a stop name or GTFS ID. Stop codes are deprecated and "
+                    "no longer supported by the Routing API v2."
+                )
             },
             errors=errors,
         )
