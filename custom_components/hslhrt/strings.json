@@ -5,7 +5,7 @@
         "description": "HSL-HRT Configuration Parameters",
         "title": "Helsinki Regional Transport",
         "data": {
-          "user_name_code": "STOP Name / Code",
+          "user_name_code": "STOP Name / GTFS ID",
           "route": "Route",
           "destination": "Destination",
           "apikey": "API key"
@@ -18,7 +18,7 @@
     },
     "abort": {
       "already_configured": "Already configured stop/route",
-      "invalid_name_code": "Stop Name or Stop Code is invalid!",
+      "invalid_name_code": "Stop Name or GTFS ID is invalid!",
       "invalid_route": "Route is invalid!",
       "invalid_destination": "Destination is invalid!"
     }
