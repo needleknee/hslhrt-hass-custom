@@ -37,7 +37,7 @@ async def validate_user_config(hass: core.HomeAssistant, data):
     name_code = data[NAME_CODE].strip()
     route = data[ROUTE]
     dest = data[DESTINATION]
-    apikey = data[APIKEY]
+    apikey = data.get(APIKEY) or hass.data[DOMAIN].get(APIKEY)
 
     errors = ""
     stop_code = None
@@ -335,5 +335,6 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     "no longer supported by the Routing API v2."
                 )
             },
+            description="{info}",
             errors=errors,
         )
