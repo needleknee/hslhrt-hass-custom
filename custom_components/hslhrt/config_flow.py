@@ -44,7 +44,6 @@ async def validate_user_config(hass: core.HomeAssistant, data):
     stop_gtfs = None
     ret_route = None
     ret_dest = None
-    stops_data = {}
 
     # Quick validation for API key
     if not apikey:
@@ -59,31 +58,44 @@ async def validate_user_config(hass: core.HomeAssistant, data):
         }
 
     #
-    # Detect input type
+    # Detect GTFS ID
     #
     GTFS_ID_REGEX = re.compile(r"^HSL:\d+$")
     is_gtfs_id = GTFS_ID_REGEX.match(name_code)
 
     #
-    # GTFS ID directly → GraphQL ids:
+    # 1. GTFS ID → query via ids:
     #
     if is_gtfs_id:
         stop_gtfs = name_code
         variables = {"ids": [stop_gtfs]}
-        query = STOP_ID_BY_GTFS_QUERY
 
         graph_client.headers["digitransit-subscription-key"] = apikey
         graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
         graph_client.headers["Accept"] = "application/json"
 
-        hsl_data = await graph_client.execute_async(query=query, variables=variables)
+        hsl_data = await graph_client.execute_async(
+            query=STOP_ID_BY_GTFS_QUERY,
+            variables=variables
+        )
+
         stops_data = hsl_data.get("data", {}).get("stops", [])
 
+        if not stops_data:
+            return {
+                STOP_CODE: None,
+                STOP_NAME: None,
+                STOP_GTFS: None,
+                ROUTE: None,
+                DESTINATION: None,
+                ERROR: "invalid_name_code",
+                APIKEY: apikey,
+            }
+
     #
-    # NAME SEARCH (default)
+    # 2. NAME SEARCH (default)
     #
     else:
-        stop_gtfs = name_code
         stops_data = []
         for attempt in (name_code, name_code.upper(), name_code.lower()):
             variables = {VAR_NAME_CODE: attempt}
@@ -93,89 +105,8 @@ async def validate_user_config(hass: core.HomeAssistant, data):
             graph_client.headers["Accept"] = "application/json"
 
             hsl_data = await graph_client.execute_async(
-                query=STOP_ID_QUERY, variables=variables
-            )
-
-            stops_data = hsl_data.get("data", {}).get("stops", [])
-            if stops_data:
-                break
-
-        if not stops_data:
-            return {
-                STOP_CODE: None,
-                STOP_NAME: None,
-                STOP_GTFS: None,
-                ROUTE: None,
-                DESTINATION: None,
-                ERROR: "invalid_name_code",
-                APIKEY: apikey,
-            }
-        
-        
-        # Now we will query GraphQL using ids:
-        variables = {"ids": [stop_gtfs]}
-        query = """
-        query ($ids: [String!]) {
-            stops(ids: $ids) {
-                name
-                code
-                gtfsId
-                routes {
-                    shortName
-                    patterns { headsign }
-                }
-            }
-        }
-        """
-
-        graph_client.headers["digitransit-subscription-key"] = apikey
-        graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
-        graph_client.headers["Accept"] = "application/json"
-
-        hsl_data = await graph_client.execute_async(query=query, variables=variables)
-        stops_data = hsl_data.get("data", {}).get("stops", [])
-
-    #
-    # STEP 3 — GTFS ID directly
-    #
-    elif is_gtfs_id:
-        stop_gtfs = name_code
-        variables = {"ids": [stop_gtfs]}
-        query = """
-        query ($ids: [String!]) {
-            stops(ids: $ids) {
-                name
-                code
-                gtfsId
-                routes {
-                    shortName
-                    patterns { headsign }
-                }
-            }
-        }
-        """
-
-        graph_client.headers["digitransit-subscription-key"] = apikey
-        graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
-        graph_client.headers["Accept"] = "application/json"
-
-        hsl_data = await graph_client.execute_async(query=query, variables=variables)
-        stops_data = hsl_data.get("data", {}).get("stops", [])
-
-    #
-    # STEP 4 — Name search (existing logic)
-    #
-    else:
-        # Try name as-is, upper, lower
-        for attempt in (name_code, name_code.upper(), name_code.lower()):
-            variables = {VAR_NAME_CODE: attempt}
-
-            graph_client.headers["digitransit-subscription-key"] = apikey
-            graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
-            graph_client.headers["Accept"] = "application/json"
-
-            hsl_data = await graph_client.execute_async(
-                query=STOP_ID_QUERY, variables=variables
+                query=STOP_ID_QUERY,
+                variables=variables
             )
 
             stops_data = hsl_data.get("data", {}).get("stops", [])
@@ -193,18 +124,32 @@ async def validate_user_config(hass: core.HomeAssistant, data):
                 APIKEY: apikey,
             }
 
+        # Extract GTFS ID from name search result
+        stop_gtfs = stops_data[0].get("gtfsId")
+
+        # Now fetch full stop info via ids:
+        variables = {"ids": [stop_gtfs]}
+
+        hsl_data = await graph_client.execute_async(
+            query=STOP_ID_BY_GTFS_QUERY,
+            variables=variables
+        )
+
+        stops_data = hsl_data.get("data", {}).get("stops", [])
+
     #
-    # STEP 5 — Extract stop info
+    # Extract stop info
     #
     stop_data = stops_data[0]
-    stop_gtfs = stop_data.get("gtfsId", stop_gtfs)
-    stop_name = stop_data.get("name", stop_name)
-    stop_code = stop_data.get("code", stop_code)
+    stop_gtfs = stop_data.get("gtfsId")
+    stop_name = stop_data.get("name")
+    stop_code = stop_data.get("code")
 
     #
-    # STEP 6 — Route/destination validation (unchanged)
+    # Route/destination filtering
     #
     routes = stop_data.get("routes", [])
+
     if route.lower() != ALL:
         for rt in routes:
             if rt.get("shortName", "").lower() == route.lower():
@@ -240,7 +185,7 @@ async def validate_user_config(hass: core.HomeAssistant, data):
             }
 
     #
-    # STEP 7 — Success
+    # Success
     #
     return {
         STOP_CODE: stop_code,
