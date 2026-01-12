@@ -1,4 +1,4 @@
-from homeassistant.core import Config, HomeAssistant
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -37,7 +37,7 @@ from .const import (
     APIKEY,
 )
 
-
+DOMAIN = "hslhrt"
 PLATFORMS = ["sensor"]
 
 graph_client = GraphqlClient(endpoint=BASE_URL)
@@ -53,7 +53,7 @@ def base_unique_id(gtfs_id, route=None, dest=None):
         return f"{gtfs_id} ALL"
 
 
-async def async_setup(hass: HomeAssistant, config: Config) -> bool:
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up configured HSL HRT."""
     hass.data.setdefault(DOMAIN, {})
     return True
