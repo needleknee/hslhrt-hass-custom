@@ -1,6 +1,8 @@
 """Config flow for HSL HRT integration."""
 
 import voluptuous as vol
+import re
+import aiohttp
 from aiohttp import ContentTypeError, ClientError
 
 from homeassistant import config_entries, core
@@ -27,13 +29,14 @@ from .const import (
 
 api_key = None
 
+STOP_CODE_REGEX = re.compile(r"^[A-Z]\d{4}$") 
+GTFS_ID_REGEX = re.compile(r"^HSL:\d+$")
+
 
 async def validate_user_config(hass: core.HomeAssistant, data):
-    """Validate input configuration for HSL HRT.
+    """Validate input configuration for HSL HRT."""
 
-    Data contains Stop Name/Code provided by user.
-    """
-    name_code = data[NAME_CODE]
+    name_code = data[NAME_CODE].strip()
     route = data[ROUTE]
     dest = data[DESTINATION]
     apikey = data[APIKEY]
@@ -47,8 +50,7 @@ async def validate_user_config(hass: core.HomeAssistant, data):
     stops_data = {}
 
     # Quick validation for API key
-    if not apikey or str(apikey).strip() == "":
-        _LOGGER.error("Digitransit API key is missing in config flow")
+    if not apikey:
         return {
             STOP_CODE: None,
             STOP_NAME: None,
@@ -59,163 +61,190 @@ async def validate_user_config(hass: core.HomeAssistant, data):
             APIKEY: apikey,
         }
 
-    # Check if there is a valid stop for the given name/code
-    try:
-        # If name is given, it is case in-sensitive. If stop code is given
-        # that is case sensitive. For e.g. Si2223 is valid stop bu si2223
-        # and SI2223 are not!
-        # Therefore we have 3 options to check:
-        # 1 --> Same code/name as given by user
-        # 2 --> Upper case code/name as given by user
-        # 3 --> Lower case code/name as given by user
+    #
+    # STEP 1 — Detect input type
+    #
+    is_gtfs_id = GTFS_ID_REGEX.match(name_code)
+    is_stop_code = STOP_CODE_REGEX.match(name_code)
 
-        # Option-1 --> As given by user
-        variables = {VAR_NAME_CODE: name_code}
-        valid_opt_count = 1
-        while True:
+    #
+    # STEP 2 — Resolve stop code → GTFS ID via REST
+    #
+    if is_stop_code:
+        url = f"https://api.digitransit.fi/routing/v2/hsl/stops?code={name_code}"
+        headers = {
+            "digitransit-subscription-key": apikey,
+            "Ocp-Apim-Subscription-Key": apikey,
+            "Accept": "application/json",
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    return {
+                        STOP_CODE: None,
+                        STOP_NAME: None,
+                        STOP_GTFS: None,
+                        ROUTE: None,
+                        DESTINATION: None,
+                        ERROR: "invalid_name_code",
+                        APIKEY: apikey,
+                    }
+
+                json_data = await resp.json()
+                if not json_data:
+                    return {
+                        STOP_CODE: None,
+                        STOP_NAME: None,
+                        STOP_GTFS: None,
+                        ROUTE: None,
+                        DESTINATION: None,
+                        ERROR: "invalid_name_code",
+                        APIKEY: apikey,
+                    }
+
+                resolved = json_data[0]
+                stop_gtfs = resolved["gtfsId"]
+                stop_name = resolved["name"]
+                stop_code = resolved["code"]
+
+        # Now we will query GraphQL using ids:
+        variables = {"ids": [stop_gtfs]}
+        query = """
+        query ($ids: [String!]) {
+            stops(ids: $ids) {
+                name
+                code
+                gtfsId
+                routes {
+                    shortName
+                    patterns { headsign }
+                }
+            }
+        }
+        """
+
+        graph_client.headers["digitransit-subscription-key"] = apikey
+        graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
+        graph_client.headers["Accept"] = "application/json"
+
+        hsl_data = await graph_client.execute_async(query=query, variables=variables)
+        stops_data = hsl_data.get("data", {}).get("stops", [])
+
+    #
+    # STEP 3 — GTFS ID directly
+    #
+    elif is_gtfs_id:
+        stop_gtfs = name_code
+        variables = {"ids": [stop_gtfs]}
+        query = """
+        query ($ids: [String!]) {
+            stops(ids: $ids) {
+                name
+                code
+                gtfsId
+                routes {
+                    shortName
+                    patterns { headsign }
+                }
+            }
+        }
+        """
+
+        graph_client.headers["digitransit-subscription-key"] = apikey
+        graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
+        graph_client.headers["Accept"] = "application/json"
+
+        hsl_data = await graph_client.execute_async(query=query, variables=variables)
+        stops_data = hsl_data.get("data", {}).get("stops", [])
+
+    #
+    # STEP 4 — Name search (existing logic)
+    #
+    else:
+        # Try name as-is, upper, lower
+        for attempt in (name_code, name_code.upper(), name_code.lower()):
+            variables = {VAR_NAME_CODE: attempt}
+
             graph_client.headers["digitransit-subscription-key"] = apikey
             graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
             graph_client.headers["Accept"] = "application/json"
-            try:
-                hsl_data = await graph_client.execute_async(
-                    query=STOP_ID_QUERY, variables=variables
-                )
-            except ContentTypeError:
-                _LOGGER.error(
-                    "Digitransit returned non-JSON response during validation. Check API key."
-                )
-                errors = "invalid_apikey"
-                return {
-                    STOP_CODE: None,
-                    STOP_NAME: None,
-                    STOP_GTFS: None,
-                    ROUTE: None,
-                    DESTINATION: None,
-                    ERROR: errors,
-                    APIKEY: apikey,
-                }
-            except ClientError as ce:
-                _LOGGER.error(f"Network error during validation: {str(ce)}")
-                errors = "client_connect_error"
-                return {
-                    STOP_CODE: None,
-                    STOP_NAME: None,
-                    STOP_GTFS: None,
-                    ROUTE: None,
-                    DESTINATION: None,
-                    ERROR: errors,
-                    APIKEY: apikey,
-                }
 
-            data_dict = hsl_data.get("data", None)
-            if data_dict is not None:
-                stops_data = data_dict.get("stops", None)
-                if stops_data is not None:
-                    if len(stops_data) > 0:
-                        ## Reset errors
-                        errors = ""
-                        break
-                    else:
-                        _LOGGER.debug(
-                            "no data in stops for %s",
-                            variables.get(VAR_NAME_CODE, "-NA-"),
-                        )
-                        errors = "invalid_name_code 1"
-                else:
-                    _LOGGER.debug(
-                        "no key stops for %s", variables.get(VAR_NAME_CODE, "-NA-")
-                    )
-                    errors = "invalid_name_code 2"
-            else:
-                _LOGGER.debug(
-                    "no key data for %s", variables.get(VAR_NAME_CODE, "-NA-")
-                )
-                errors = "invalid_name_code 3"
+            hsl_data = await graph_client.execute_async(
+                query=STOP_ID_QUERY, variables=variables
+            )
 
-            if valid_opt_count == 3:
-                return {
-                    STOP_CODE: stop_code,
-                    STOP_NAME: stop_name,
-                    STOP_GTFS: stop_gtfs,
-                    ROUTE: ret_route,
-                    DESTINATION: ret_dest,
-                    ERROR: errors,
-                    APIKEY: apikey,
-                }
-            elif valid_opt_count == 1:
-                # Option-2: --> Upper case of user value
-                variables = {VAR_NAME_CODE: name_code.upper()}
-                valid_opt_count = 2
-            else:
-                # Option-3: --> Lower case of user value
-                variables = {VAR_NAME_CODE: name_code.lower()}
-                valid_opt_count = 3
+            stops_data = hsl_data.get("data", {}).get("stops", [])
+            if stops_data:
+                break
 
-    except Exception as err:
-        err_string = f"Client error with message {str(err)}"
-        errors = "client_connect_error"
-        _LOGGER.error(err_string)
+        if not stops_data:
+            return {
+                STOP_CODE: None,
+                STOP_NAME: None,
+                STOP_GTFS: None,
+                ROUTE: None,
+                DESTINATION: None,
+                ERROR: "invalid_name_code",
+                APIKEY: apikey,
+            }
 
-        return {
-            STOP_CODE: None,
-            STOP_NAME: None,
-            STOP_GTFS: None,
-            ROUTE: None,
-            DESTINATION: None,
-            ERROR: errors,
-            APIKEY: apikey,
-        }
-
+    #
+    # STEP 5 — Extract stop info
+    #
     stop_data = stops_data[0]
-    stop_gtfs = stop_data.get("gtfsId", "")
-    stop_name = stop_data.get("name", "")
-    stop_code = stop_data.get("code", "")
-    if stop_name != "" and stop_gtfs != "":
-        ## Specific route should be checked
-        ## Ignore destination filter
-        if (route.lower() != ALL) or (dest.lower() != ALL):
-            routes = stop_data.get("routes", None)
-            if routes is not None:
-                for rt in routes:
-                    if route.lower() != ALL:
-                        rt_name = rt.get("shortName", "")
-                        if rt_name != "":
-                            if rt_name.lower() == route.lower():
-                                ret_route = route
-                                break
-                    else:
-                        patterns = rt.get("patterns", None)
-                        if patterns is not None:
-                            break_loop = False
-                            for pattern in patterns:
-                                head_sign = pattern.get("headsign", "")
-                                if head_sign != "":
-                                    if dest.lower() in head_sign.lower():
-                                        ret_dest = head_sign
-                                        break_loop = True
-                                        break
+    stop_gtfs = stop_data.get("gtfsId", stop_gtfs)
+    stop_name = stop_data.get("name", stop_name)
+    stop_code = stop_data.get("code", stop_code)
 
-                            if break_loop:
-                                break
-        else:
-            ret_route = route
+    #
+    # STEP 6 — Route/destination validation (unchanged)
+    #
+    routes = stop_data.get("routes", [])
+    if route.lower() != ALL:
+        for rt in routes:
+            if rt.get("shortName", "").lower() == route.lower():
+                ret_route = route
+                break
+        if ret_route is None:
+            return {
+                STOP_CODE: stop_code,
+                STOP_NAME: stop_name,
+                STOP_GTFS: stop_gtfs,
+                ROUTE: None,
+                DESTINATION: None,
+                ERROR: "invalid_route",
+                APIKEY: apikey,
+            }
 
-        if (route.lower() != ALL) and (ret_route == None):
-            errors = "invalid_route"
-        else:
-            if (dest.lower() != ALL) and (ret_dest == None):
-                errors = "invalid_destination"
-    else:
-        _LOGGER.error("Name or gtfs is blank")
-        errors = "invalid_name_code 4"
+    if dest.lower() != ALL:
+        for rt in routes:
+            for pattern in rt.get("patterns", []):
+                head = pattern.get("headsign", "")
+                if dest.lower() in head.lower():
+                    ret_dest = head
+                    break
+        if ret_dest is None:
+            return {
+                STOP_CODE: stop_code,
+                STOP_NAME: stop_name,
+                STOP_GTFS: stop_gtfs,
+                ROUTE: ret_route,
+                DESTINATION: None,
+                ERROR: "invalid_destination",
+                APIKEY: apikey,
+            }
 
+    #
+    # STEP 7 — Success
+    #
     return {
         STOP_CODE: stop_code,
         STOP_NAME: stop_name,
         STOP_GTFS: stop_gtfs,
-        ROUTE: ret_route,
-        DESTINATION: ret_dest,
-        ERROR: errors,
+        ROUTE: ret_route or route,
+        DESTINATION: ret_dest or dest,
+        ERROR: "",
         APIKEY: apikey,
     }
 
