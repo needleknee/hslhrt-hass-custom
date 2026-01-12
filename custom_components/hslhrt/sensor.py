@@ -49,14 +49,16 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 class HSLHRTRouteSensor(CoordinatorEntity):
     """Implementation of a HSL HRT sensor."""
 
+    _attr_icon = "mdi:bus"
+    _attr_has_entity_name= True
+    
     def __init__(self, name, coordinator, sensor_type):
         super().__init__(coordinator)
     
         self.client_name = name
         self.type = sensor_type
     
-        self._attr_name = SENSOR_TYPES[sensor_type][0]
-        self._attr_icon = None
+        self._attr_name = "Route"
         self._attr_native_unit_of_measurement = SENSOR_TYPES[sensor_type][1]
     
         self._attr_unique_id = base_unique_id(
@@ -65,120 +67,52 @@ class HSLHRTRouteSensor(CoordinatorEntity):
             coordinator.dest
         )
 
-
-    @property
-    def name(self):
-        """Return the name of the sensor."""
-        if self.coordinator is not None:
-            if self.coordinator.route_data is not None:
-                ext = ""
-                if (self.coordinator.route is not None) and (
-                    self.coordinator.route != ALL
-                ):
-                    ext = self.coordinator.route.upper()
-                elif (self.coordinator.dest is not None) and (
-                    self.coordinator.dest != ALL
-                ):
-                    ext = self.coordinator.dest.upper()
-                else:
-                    ext = ALL
-                return f"{self.coordinator.route_data[STOP_NAME]}({self.coordinator.route_data[STOP_CODE]}) {ext}"
-
-        return self._name
-
-    @property
-    def state(self):
-        """Return the state of the sensor."""
-        return self._state
-
-    @property
-    def icon(self):
-        """Icon to use in the frontend, if any."""
-        return self._icon
-
     @property
     def device_info(self):
         return {
-            "identifiers": {(DOMAIN, self._attr_unique_id)},
-            "name": self.client_name,
+            "identifiers": {(DOMAIN, self.coordinator.gtfs_id)},
+            "name": self.coordinator.route_data[STOP_NAME],
             "manufacturer": "HSL / Digitransit",
             "model": "Routing API v2",
         }
 
     @property
-    def unit_of_measurement(self):
-        """Return unit of measurement."""
-        return self._unit_of_measurement
+    def native_value(self):
+        """Return the current route."""
+        data = self.coordinator.route_data
+
+        if not data or not data.get(DICT_KEY_ROUTES):
+            return None
+
+        # First route is the primary one
+        primary = data[DICT_KEY_ROUTES][0]
+        return primary.get(DICT_KEY_ROUTE)
 
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
+        data = self.coordinator.route_data
+        
+        if not data or not data.get(DICT_KEY_ROUTES):
+            return {ATTR_ATTRIBUTION: ATTRIBUTION}
+            
+        routes = []
+        for rt in data[DICT_KEY_ROUTES][1:]:
+            routes.append({
+                ATTR_ROUTE: rt[DICT_KEY_ROUTE],
+                ATTR_DEST: rt[DICT_KEY_DEST] or "Unavailable",
+                ATTR_ARR_TIME: rt[DICT_KEY_ARRIVAL],
+            })
 
-        if (
-            self.coordinator is not None
-            and len(self.coordinator.route_data[DICT_KEY_ROUTES]) > 0
-        ):
-            routes = []
-            for rt in self.coordinator.route_data[DICT_KEY_ROUTES][1:]:
-                dest_str = "Unavailable"
-
-                if rt[DICT_KEY_DEST] is not None:
-                    dest_str = rt[DICT_KEY_DEST]
-
-                route = {
-                    ATTR_ROUTE: rt[DICT_KEY_ROUTE],
-                    ATTR_DEST: dest_str,
-                    ATTR_ARR_TIME: rt[DICT_KEY_ARRIVAL],
-                }
-                routes.append(route)
-
-            dest_str = "Unavailable"
-
-            if (
-                self.coordinator.route_data[DICT_KEY_ROUTES][0][DICT_KEY_DEST]
-                is not None
-            ):
-                dest_str = self.coordinator.route_data[DICT_KEY_ROUTES][0][
-                    DICT_KEY_DEST
-                ]
-
-            return {
-                ATTR_ROUTE: self.coordinator.route_data[DICT_KEY_ROUTES][0][
-                    DICT_KEY_ROUTE
-                ],
-                ATTR_DEST: dest_str,
-                ATTR_ARR_TIME: self.coordinator.route_data[DICT_KEY_ROUTES][0][
-                    DICT_KEY_ARRIVAL
-                ],
-                "ROUTES": routes,
-                ATTR_STOP_NAME: self.coordinator.route_data[STOP_NAME],
-                ATTR_STOP_CODE: self.coordinator.route_data[STOP_CODE],
-                ATTR_STOP_GTFS: self.coordinator.route_data[STOP_GTFS],
-                ATTR_ATTRIBUTION: ATTRIBUTION,
-            }
-
-        return {ATTR_ATTRIBUTION: ATTRIBUTION}
-
-    def update(self):
-        """Get the latest data from HSL HRT and update the states."""
-
-        if self.coordinator is None:
-            self._state = None
-            return
-
-        if self.coordinator.route_data is None:
-            self._state = None
-            return
-
-        if len(self.coordinator.route_data[DICT_KEY_ROUTES]) > 0:
-            for rt in self.coordinator.route_data[DICT_KEY_ROUTES]:
-                if rt[DICT_KEY_ROUTE] != "":
-                    self._state = rt[DICT_KEY_ROUTE]
-                    self._icon = "mdi:bus"
-                    return
-                else:
-                    self._state = None
-        else:
-            self._state = None
-
-        return
+        primary = data[DICT_KEY_ROUTES][0]
+        
+        return {
+            ATTR_ROUTE: primary[DICT_KEY_ROUTE],
+            ATTR_DEST: primary[DICT_KEY_DEST] or "Unavailable",
+            ATTR_ARR_TIME: primary[DICT_KEY_ARRIVAL],
+            "ROUTES": routes,
+            ATTR_STOP_NAME: data[STOP_NAME],
+            ATTR_STOP_CODE: data[STOP_CODE],
+            ATTR_STOP_GTFS: data[STOP_GTFS],
+            ATTR_ATTRIBUTION: ATTRIBUTION,
+        }
