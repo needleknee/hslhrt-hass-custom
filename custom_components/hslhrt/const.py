@@ -12,7 +12,7 @@ COORDINATOR = "coordinator"
 MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=1)
 UNDO_UPDATE_LISTENER = "undo_update_listener"
 
-BASE_URL = "https://api.digitransit.fi/routing/v1/routers/hsl/index/graphql"
+BASE_URL = "https://api.digitransit.fi/routing/v2/hsl/gtfs/v1"
 
 NAME_CODE = "user_name_code"
 STOP_CODE = "stop_code"
