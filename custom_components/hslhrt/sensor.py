@@ -50,17 +50,21 @@ class HSLHRTRouteSensor(CoordinatorEntity):
     """Implementation of a HSL HRT sensor."""
 
     def __init__(self, name, coordinator, sensor_type):
-        """Initialize the sensor."""
-
         super().__init__(coordinator)
+    
         self.client_name = name
-        self._name = SENSOR_TYPES[sensor_type][0]
-        self._state = None
-        self._icon = None
         self.type = sensor_type
-        self._unit_of_measurement = SENSOR_TYPES[sensor_type][1]
+    
+        self._attr_name = SENSOR_TYPES[sensor_type][0]
+        self._attr_icon = None
+        self._attr_native_unit_of_measurement = SENSOR_TYPES[sensor_type][1]
+    
+        self._attr_unique_id = base_unique_id(
+            coordinator.gtfs_id,
+            coordinator.route,
+            coordinator.dest
+        )
 
-        self.update()
 
     @property
     def name(self):
