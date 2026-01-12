@@ -14,6 +14,7 @@ from . import base_unique_id, graph_client
 from .const import (
     _LOGGER,
     STOP_ID_QUERY,
+    STOP_ID_BY_GTFS_QUERY,
     DOMAIN,
     NAME_CODE,
     STOP_CODE,
