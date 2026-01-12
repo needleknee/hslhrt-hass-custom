@@ -1,6 +1,5 @@
 """Sensor platform for HSL HRT routes."""
 
-from homeassistant.helpers.entity import Entity
 from homeassistant.util import Throttle
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
