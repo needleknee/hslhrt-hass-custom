@@ -235,10 +235,46 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         data_schema = vol.Schema(
             {
-                vol.Required(NAME_CODE, default=""): str,
-                vol.Required(ROUTE, default="ALL"): str,
-                vol.Required(DESTINATION, default="ALL"): str,
-                vol.Required(APIKEY, default=""): str,
+                vol.Required(
+                    NAME_CODE,
+                    description={
+                        "suggested_value": "",
+                        "description": (
+                            "Enter a stop name (e.g. 'Kuusisaarentie') or a GTFS ID "
+                            "(e.g. 'HSL:1303298'). Stop codes like 'H1415' are no longer supported."
+                        )
+                    },
+                ): str,
+                vol.Required(
+                    ROUTE,
+                    description={
+                        "suggested_value": "ALL",
+                        "description": (
+                            "Optional: Filter by route short name (e.g. '550'). "
+                            "Use 'ALL' to include all routes."
+                        )
+                    },
+                ): str,
+                vol.Required(
+                    DESTINATION,
+                    description={
+                        "suggested_value": "ALL",
+                        "description": (
+                            "Optional: Filter by destination headsign (e.g. 'Itäkeskus'). "
+                            "Use 'ALL' to include all destinations."
+                        )
+                    },
+                ): str,
+                vol.Required(
+                    APIKEY,
+                    description={
+                        "suggested_value": "",
+                        "description": (
+                            "Enter your Digitransit API key. You can create one at "
+                            "https://portal-api.digitransit.fi/"
+                        )
+                    },
+                ): str,
             }
         )
 
