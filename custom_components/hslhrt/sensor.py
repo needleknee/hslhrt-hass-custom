@@ -97,6 +97,15 @@ class HSLHRTRouteSensor(CoordinatorEntity):
         return self._icon
 
     @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, self._attr_unique_id)},
+            "name": self.client_name,
+            "manufacturer": "HSL / Digitransit",
+            "model": "Routing API v2",
+        }
+
+    @property
     def unit_of_measurement(self):
         """Return unit of measurement."""
         return self._unit_of_measurement
