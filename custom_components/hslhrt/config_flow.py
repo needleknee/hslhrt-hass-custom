@@ -2,278 +2,30 @@
 
 import voluptuous as vol
 import re
-import aiohttp
-from aiohttp import ContentTypeError, ClientError
 
-from homeassistant import config_entries, core
+from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers import config_validation as cv
 
-from . import base_unique_id, graph_client
+from . import base_unique_id
+from .helpers import (
+    lookup_stops,
+    lookup_routes,
+    lookup_destinations,
+)
 
 from .const import (
     _LOGGER,
-    STOP_ID_QUERY,
-    STOP_ID_BY_GTFS_QUERY,
     DOMAIN,
-    NAME_CODE,
     STOP_CODE,
     STOP_NAME,
     STOP_GTFS,
-    ERROR,
     ALL,
-    VAR_NAME_CODE,
     ROUTE,
     DESTINATION,
     APIKEY,
 )
 
-api_key = None
-
-
-async def async_step_user(self, user_input=None):
-    if user_input is not None:
-        self.stop_query = user_input[NAME_CODE]
-        return await self.async_step_pick_stop()
-
-    return self.async_show_form(
-        step_id="user",
-        data_schema=vol.Schema({
-            vol.Required(NAME_CODE): str
-        })
-    )
-
-
-async def async_step_pick_stop(self, user_input=None):
-    stops = await lookup_stops(self.stop_query)
-
-    if not stops:
-        return self.async_show_form(
-            step_id="user",
-            errors={"base": "no_stops_found"}
-        )
-
-    self.stops = { f"{s['name']} ({s['code']})": s['gtfsId'] for s in stops }
-
-    if user_input is not None:
-        self.selected_stop = self.stops[user_input["stop"]]
-        return await self.async_step_pick_route()
-
-    return self.async_show_form(
-        step_id="pick_stop",
-        data_schema=vol.Schema({
-            vol.Required("stop"): vol.In(list(self.stops.keys()))
-        })
-    )
-
-
-async def async_step_pick_route(self, user_input=None):
-    routes = await lookup_routes(self.selected_stop)
-
-    self.routes = [r["shortName"] for r in routes]
-
-    if user_input is not None:
-        self.selected_route = user_input["route"]
-        return await self.async_step_pick_dest()
-
-    return self.async_show_form(
-        step_id="pick_route",
-        data_schema=vol.Schema({
-            vol.Required("route"): vol.In(self.routes + ["ALL"])
-        })
-    )
-
-
-async def async_step_pick_dest(self, user_input=None):
-    dests = await lookup_destinations(self.selected_stop, self.selected_route)
-
-    self.dests = dests
-
-    if user_input is not None:
-        self.selected_dest = user_input["dest"]
-        return self.async_create_entry(
-            title="HSL Stop",
-            data={
-                STOP_GTFS: self.selected_stop,
-                ROUTE: self.selected_route,
-                DESTINATION: self.selected_dest,
-            }
-        )
-
-    return self.async_show_form(
-        step_id="pick_dest",
-        data_schema=vol.Schema({
-            vol.Required("dest"): vol.In(self.dests + ["ALL"])
-        })
-    )
-
-
-async def validate_user_config(hass: core.HomeAssistant, data):
-    """Validate input configuration for HSL HRT."""
-
-    name_code = data[NAME_CODE].strip()
-    route = data[ROUTE]
-    dest = data[DESTINATION]
-    apikey = data.get(APIKEY) or hass.data[DOMAIN].get(APIKEY)
-
-    errors = ""
-    stop_code = None
-    stop_name = None
-    stop_gtfs = None
-    ret_route = None
-    ret_dest = None
-
-    # Quick validation for API key
-    if not apikey:
-        return {
-            STOP_CODE: None,
-            STOP_NAME: None,
-            STOP_GTFS: None,
-            ROUTE: None,
-            DESTINATION: None,
-            ERROR: "missing_apikey",
-            APIKEY: apikey,
-        }
-
-    #
-    # Detect GTFS ID
-    #
-    GTFS_ID_REGEX = re.compile(r"^HSL:\d+$")
-    is_gtfs_id = GTFS_ID_REGEX.match(name_code)
-
-    #
-    # 1. GTFS ID → query via ids:
-    #
-    if is_gtfs_id:
-        stop_gtfs = name_code
-        variables = {"ids": [stop_gtfs]}
-
-        graph_client.headers["digitransit-subscription-key"] = apikey
-        graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
-        graph_client.headers["Accept"] = "application/json"
-
-        hsl_data = await graph_client.execute_async(
-            query=STOP_ID_BY_GTFS_QUERY,
-            variables=variables
-        )
-
-        stops_data = hsl_data.get("data", {}).get("stops", [])
-
-        if not stops_data:
-            return {
-                STOP_CODE: None,
-                STOP_NAME: None,
-                STOP_GTFS: None,
-                ROUTE: None,
-                DESTINATION: None,
-                ERROR: "invalid_name_code",
-                APIKEY: apikey,
-            }
-
-    #
-    # 2. NAME SEARCH (default)
-    #
-    else:
-        stops_data = []
-        for attempt in (name_code, name_code.upper(), name_code.lower()):
-            variables = {VAR_NAME_CODE: attempt}
-
-            graph_client.headers["digitransit-subscription-key"] = apikey
-            graph_client.headers["Ocp-Apim-Subscription-Key"] = apikey
-            graph_client.headers["Accept"] = "application/json"
-
-            hsl_data = await graph_client.execute_async(
-                query=STOP_ID_QUERY,
-                variables=variables
-            )
-
-            stops_data = hsl_data.get("data", {}).get("stops", [])
-            if stops_data:
-                break
-
-        if not stops_data:
-            return {
-                STOP_CODE: None,
-                STOP_NAME: None,
-                STOP_GTFS: None,
-                ROUTE: None,
-                DESTINATION: None,
-                ERROR: "invalid_name_code",
-                APIKEY: apikey,
-            }
-
-        # Extract GTFS ID from name search result
-        stop_gtfs = stops_data[0].get("gtfsId")
-
-        # Now fetch full stop info via ids:
-        variables = {"ids": [stop_gtfs]}
-
-        hsl_data = await graph_client.execute_async(
-            query=STOP_ID_BY_GTFS_QUERY,
-            variables=variables
-        )
-
-        stops_data = hsl_data.get("data", {}).get("stops", [])
-
-    #
-    # Extract stop info
-    #
-    stop_data = stops_data[0]
-    stop_gtfs = stop_data.get("gtfsId")
-    stop_name = stop_data.get("name")
-    stop_code = stop_data.get("code")
-
-    #
-    # Route/destination filtering
-    #
-    routes = stop_data.get("routes", [])
-
-    if route.lower() != ALL:
-        for rt in routes:
-            if rt.get("shortName", "").lower() == route.lower():
-                ret_route = route
-                break
-        if ret_route is None:
-            return {
-                STOP_CODE: stop_code,
-                STOP_NAME: stop_name,
-                STOP_GTFS: stop_gtfs,
-                ROUTE: None,
-                DESTINATION: None,
-                ERROR: "invalid_route",
-                APIKEY: apikey,
-            }
-
-    if dest.lower() != ALL:
-        for rt in routes:
-            for pattern in rt.get("patterns", []):
-                head = pattern.get("headsign", "")
-                if dest.lower() in head.lower():
-                    ret_dest = head
-                    break
-        if ret_dest is None:
-            return {
-                STOP_CODE: stop_code,
-                STOP_NAME: stop_name,
-                STOP_GTFS: stop_gtfs,
-                ROUTE: ret_route,
-                DESTINATION: None,
-                ERROR: "invalid_destination",
-                APIKEY: apikey,
-            }
-
-    #
-    # Success
-    #
-    return {
-        STOP_CODE: stop_code,
-        STOP_NAME: stop_name,
-        STOP_GTFS: stop_gtfs,
-        ROUTE: ret_route or route,
-        DESTINATION: ret_dest or dest,
-        ERROR: "",
-        APIKEY: apikey,
-    }
+GTFS_REGEX = re.compile(r"^HSL:\d+$")
 
 
 class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
@@ -285,133 +37,145 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         """Handle user step."""
         errors = {}
-        valid = {}
     
         # Check if API key already exists globally
-        existing_key = self.hass.data.get(DOMAIN, {}).get(APIKEY)
+        self.existing_key = self.hass.data.get(DOMAIN, {}).get(APIKEY)
     
         if user_input is not None:
-            # Inject stored API key if user didn't provide one
-            if APIKEY not in user_input and existing_key:
-                user_input[APIKEY] = existing_key
-    
-            valid = await validate_user_config(self.hass, user_input)
-    
-            await self.async_set_unique_id(
-                base_unique_id(valid[STOP_GTFS], valid[ROUTE], valid[DESTINATION])
-            )
-            self._abort_if_unique_id_configured()
-    
-            if valid.get(ERROR, "") == "":
-                title = ""
-                if valid[ROUTE] is not None:
-                    title = f"{valid[STOP_NAME]}({valid[STOP_CODE]}) {valid[ROUTE]}"
-                elif valid[DESTINATION] is not None:
-                    title = f"{valid[STOP_NAME]}({valid[STOP_CODE]}) {valid[DESTINATION]}"
-                else:
-                    title = f"{valid[STOP_NAME]}({valid[STOP_CODE]}) ALL"
-    
-                return self.async_create_entry(title=title, data=valid)
-    
-            reason = valid.get(ERROR, "Configuration Error!")
-            _LOGGER.error(reason)
-            return self.async_abort(reason=reason)
-    
-        #
-        # Build schema dynamically depending on whether API key is known
-        #
-        if existing_key:
-            # API key already stored → do NOT ask again
-            data_schema = vol.Schema(
-                {
-                    vol.Required(
-                        NAME_CODE,
-                        description={
-                            "suggested_value": "",
-                            "description": (
-                                "Enter a stop name (e.g. 'Kuusisaarentie') or a GTFS ID "
-                                "(e.g. 'HSL:1303298'). Stop codes like 'H1415' are no longer supported."
-                            )
-                        },
-                    ): str,
-                    vol.Required(
-                        ROUTE,
-                        description={
-                            "suggested_value": "ALL",
-                            "description": (
-                                "Optional: Filter by route short name (e.g. '550'). "
-                                "Use 'ALL' to include all routes."
-                            )
-                        },
-                    ): str,
-                    vol.Required(
-                        DESTINATION,
-                        description={
-                            "suggested_value": "ALL",
-                            "description": (
-                                "Optional: Filter by destination headsign (e.g. 'Itäkeskus'). "
-                                "Use 'ALL' to include all destinations."
-                            )
-                        },
-                    ): str,
-                }
-            )
-        else:
-            # First time → ask for API key
-            data_schema = vol.Schema(
-                {
-                    vol.Required(
-                        NAME_CODE,
-                        description={
-                            "suggested_value": "",
-                            "description": (
-                                "Enter a stop name (e.g. 'Kuusisaarentie') or a GTFS ID "
-                                "(e.g. 'HSL:1303298'). Stop codes like 'H1415' are no longer supported."
-                            )
-                        },
-                    ): str,
-                    vol.Required(
-                        ROUTE,
-                        description={
-                            "suggested_value": "ALL",
-                            "description": (
-                                "Optional: Filter by route short name (e.g. '550'). "
-                                "Use 'ALL' to include all routes."
-                            )
-                        },
-                    ): str,
-                    vol.Required(
-                        DESTINATION,
-                        description={
-                            "suggested_value": "ALL",
-                            "description": (
-                                "Optional: Filter by destination headsign (e.g. 'Itäkeskus'). "
-                                "Use 'ALL' to include all destinations."
-                            )
-                        },
-                    ): str,
-                    vol.Required(
-                        APIKEY,
-                        description={
-                            "suggested_value": "",
-                            "description": (
-                                "Enter your Digitransit API key. You can create one at "
-                                "https://portal-api.digitransit.fi/"
-                            )
-                        },
-                    ): str,
-                }
-            )
-    
+            self.stop_query = user_input["stop_query"].strip()
+
+            # If GTFS ID → skip stop lookup
+            if GTFS_REGEX.match(self.stop_query):
+                self.selected_stop = self.stop_query
+                return await self.async_step_pick_route()
+
+            # Otherwise → lookup stops
+            return await self.async_step_pick_stop()
+
         return self.async_show_form(
             step_id="user",
-            data_schema=data_schema,
-            description_placeholders={
-                "info": (
-                    "Provide a stop name or GTFS ID. Stop codes are deprecated and "
-                    "no longer supported by the Routing API v2."
-                )
-            },
-            description="{info}",
+            data_schema=vol.Schema({
+                vol.Required(
+                    "stop_query",
+                    description={
+                        "description": (
+                            "Enter a partial stop name (e.g. 'Kamppi') or a GTFS ID "
+                            "(e.g. 'HSL:1303298')."
+                        )        
+                    },
+                ): str,
+            }),
             errors=errors,
+        )
+
+    async def async_step_pick_stop(self, user_input=None):
+        """Show dropdown of matching stops."""
+        apikey = self.existing_key
+        if not apikey:
+            return self.async_abort(reason="missing_apikey")
+
+        stops = await lookup_stops(apikey, self.stop_query)
+
+        if not stops:
+            return self.async_show_form(
+                step_id="user",
+                errors={"base": "no_stops_found"},
+                data_schema=vol.Schema({
+                    vol.Required("stop_query"): str
+                })
+            )
+
+        self.stops = {
+            f"{s['name']} ({s['code']})": s["gtfsId"]
+            for s in stops
+        }
+
+        if user_input is not None:
+            self.selected_stop = self.stops[user_input["stop"]]
+            return await self.async_step_pick_route()
+
+        return self.async_show_form(
+            step_id="pick_stop",
+            data_schema=vol.Schema({
+                vol.Required("stop"): vol.In(list(self.stops.keys()))
+            }),
+        )
+
+    async def async_step_pick_route(self, user_input=None):
+        """Show dropdown of routes for the selected stop."""
+        apikey = self.existing_key
+        if not apikey:
+            return self.async_abort(reason="missing_apikey")
+
+        routes = await lookup_routes(apikey, self.selected_stop)
+        self.routes = sorted([r["shortName"] for r in routes])
+
+        if not self.routes:
+            return self.async_abort(reason="no_routes_found")
+
+        route_options = self.routes + [ALL]
+
+        if user_input is not None:
+            self.selected_route = user_input["route"]
+
+            if self.selected_route == ALL:
+                self.selected_dest = ALL
+                return await self._create_final_entry()
+
+            return await self.async_step_pick_dest()
+
+        return self.async_show_form(
+            step_id="pick_route",
+            data_schema=vol.Schema({
+                vol.Required("route"): vol.In(route_options)
+            }),
+        )
+
+    async def async_step_pick_dest(self, user_input=None):
+        """Show dropdown of destinations for the selected route."""
+        apikey = self.existing_key
+        if not apikey:
+            return self.async_abort(reason="missing_apikey")
+
+        dests = await lookup_destination(apikey, self.selected_stop, self.selected_route)
+        self.dests = sorted(dests)
+
+        dest_options = self.dests + [ALL]
+        
+        if user_input is not None:
+            self.selected_dest = user_input["dest"]
+            return await self._create_final_entry()
+
+        return self.async_show_form(
+            step_id="pick_dest",
+            data_schema=vol.Schema({
+                vol.Required("dest"): vol.In(dest_options)
+            }),
+        )
+
+    async def _create_final_entry(self):
+        """Create the final config entry."""
+
+        unique_id = base_unique_id(
+            self.selected_stop,
+            self.selected_route,
+            self.selected_dest,
+        )
+
+        await self.async_set_unique_id(unique_id)
+        self._abort_if_unique_id_configured()
+
+        title = f"{self.selected_stop} {self.selected_route}"
+            
+        if APIKEY not in user_input and existing_key:
+            user_input[APIKEY] = existing_key
+    
+        return self.async_create_entry(
+            title=title, 
+            data={
+                STOP_GTFS: self.selected_stop,
+                ROUTE: self.selected_route,
+                DESTINATION: self.selected_dest,
+                APIKEY: self.existing_key,
+            },
         )
