@@ -31,6 +31,83 @@ from .const import (
 api_key = None
 
 
+async def async_step_user(self, user_input=None):
+    if user_input is not None:
+        self.stop_query = user_input[NAME_CODE]
+        return await self.async_step_pick_stop()
+
+    return self.async_show_form(
+        step_id="user",
+        data_schema=vol.Schema({
+            vol.Required(NAME_CODE): str
+        })
+    )
+
+
+async def async_step_pick_stop(self, user_input=None):
+    stops = await lookup_stops(self.stop_query)
+
+    if not stops:
+        return self.async_show_form(
+            step_id="user",
+            errors={"base": "no_stops_found"}
+        )
+
+    self.stops = { f"{s['name']} ({s['code']})": s['gtfsId'] for s in stops }
+
+    if user_input is not None:
+        self.selected_stop = self.stops[user_input["stop"]]
+        return await self.async_step_pick_route()
+
+    return self.async_show_form(
+        step_id="pick_stop",
+        data_schema=vol.Schema({
+            vol.Required("stop"): vol.In(list(self.stops.keys()))
+        })
+    )
+
+
+async def async_step_pick_route(self, user_input=None):
+    routes = await lookup_routes(self.selected_stop)
+
+    self.routes = [r["shortName"] for r in routes]
+
+    if user_input is not None:
+        self.selected_route = user_input["route"]
+        return await self.async_step_pick_dest()
+
+    return self.async_show_form(
+        step_id="pick_route",
+        data_schema=vol.Schema({
+            vol.Required("route"): vol.In(self.routes + ["ALL"])
+        })
+    )
+
+
+async def async_step_pick_dest(self, user_input=None):
+    dests = await lookup_destinations(self.selected_stop, self.selected_route)
+
+    self.dests = dests
+
+    if user_input is not None:
+        self.selected_dest = user_input["dest"]
+        return self.async_create_entry(
+            title="HSL Stop",
+            data={
+                STOP_GTFS: self.selected_stop,
+                ROUTE: self.selected_route,
+                DESTINATION: self.selected_dest,
+            }
+        )
+
+    return self.async_show_form(
+        step_id="pick_dest",
+        data_schema=vol.Schema({
+            vol.Required("dest"): vol.In(self.dests + ["ALL"])
+        })
+    )
+
+
 async def validate_user_config(hass: core.HomeAssistant, data):
     """Validate input configuration for HSL HRT."""
 
