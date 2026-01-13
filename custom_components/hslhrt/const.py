@@ -51,7 +51,7 @@ LIMIT = 1500
 SECS_IN_DAY = 24 * 60 * 60
 
 STOP_ID_QUERY = """
-    query ($name_code: String!) {
+    query ($id: String!) {
         stops (name: $name_code) {
             gtfsId
             name
