@@ -60,7 +60,7 @@ class HSLHRTRouteSensor(CoordinatorEntity):
         self.client_name = name
         self.type = sensor_type
     
-        self._attr_name = "Route"
+        self._attr_name = SENSOR_TYPES[sensor_type][0]
         self._attr_native_unit_of_measurement = SENSOR_TYPES[sensor_type][1]
     
         self._attr_unique_id = base_unique_id(
@@ -73,7 +73,7 @@ class HSLHRTRouteSensor(CoordinatorEntity):
     def device_info(self):
         return {
             "identifiers": {(DOMAIN, self.coordinator.gtfs_id)},
-            "name": self.coordinator.route_data[STOP_NAME],
+            "name": self.coordinator.route_data.get(STOP_NAME, "HSL Stop"),
             "manufacturer": "HSL / Digitransit",
             "model": "Routing API v2",
         }
