@@ -16,8 +16,6 @@ from .helpers import (
 from .const import (
     _LOGGER,
     DOMAIN,
-    STOP_CODE,
-    STOP_NAME,
     STOP_GTFS,
     ALL,
     ROUTE,
@@ -34,36 +32,55 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
 
-    async def async_step_user(self, user_input=None):
-        """Handle user step."""
+    async def async_step_apikey(self, user_input=None):
+        """Ask the user for the Digitransit API key."""
         errors = {}
     
-        # Check if API key already exists globally
+        if user_input is not None:
+            key = user_input.get(APIKEY, "").strip()
+    
+            if not key:
+                errors["base"] = "missing_apikey"
+            else:
+                # Store globally
+                self.hass.data.setdefault(DOMAIN, {})[APIKEY] = key
+                self.existing_key = key
+    
+                # Now that we have the key → go to stop name step
+                return await self.async_step_user()
+    
+        return self.async_show_form(
+            step_id="apikey",
+            data_schema=vol.Schema({
+                vol.Required(APIKEY): str
+            }),
+            errors=errors,
+        )
+
+    async def async_step_user(self, user_input=None):
+        """Ask for stop name or GTFS ID."""
+        errors = {}
+    
+        # Load global API key
         self.existing_key = self.hass.data.get(DOMAIN, {}).get(APIKEY)
+    
+        # If no API key yet → ask for it first
+        if self.existing_key is None:
+            return await self.async_step_apikey()
     
         if user_input is not None:
             self.stop_query = user_input["stop_query"].strip()
-
-            # If GTFS ID → skip stop lookup
+    
             if GTFS_REGEX.match(self.stop_query):
                 self.selected_stop = self.stop_query
                 return await self.async_step_pick_route()
-
-            # Otherwise → lookup stops
+    
             return await self.async_step_pick_stop()
-
+    
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(
-                    "stop_query",
-                    description={
-                        "description": (
-                            "Enter a partial stop name (e.g. 'Kamppi') or a GTFS ID "
-                            "(e.g. 'HSL:1303298')."
-                        )        
-                    },
-                ): str,
+                vol.Required("stop_query"): str
             }),
             errors=errors,
         )
@@ -137,7 +154,7 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         if not apikey:
             return self.async_abort(reason="missing_apikey")
 
-        dests = await lookup_destination(apikey, self.selected_stop, self.selected_route)
+        dests = await lookup_destinations(apikey, self.selected_stop, self.selected_route)
         self.dests = sorted(dests)
 
         dest_options = self.dests + [ALL]
@@ -166,9 +183,6 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         title = f"{self.selected_stop} {self.selected_route}"
-            
-        if APIKEY not in user_input and existing_key:
-            user_input[APIKEY] = existing_key
     
         return self.async_create_entry(
             title=title, 
