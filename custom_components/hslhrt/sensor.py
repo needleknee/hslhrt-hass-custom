@@ -5,6 +5,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from homeassistant.const import ATTR_ATTRIBUTION
 
+from . import base_unique_id
+
 from .const import (
     _LOGGER,
     DOMAIN,
