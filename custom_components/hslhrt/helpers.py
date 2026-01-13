@@ -36,7 +36,7 @@ async def lookup_stops(apikey: str, name_query: str):
 
     # Try multiple case variations for better matching
     for attempt in (name_query, name_query.upper(), name_query.lower()):
-        variables = {"name": attempt}
+        variables = {"id": attempt}
 
         try:
             data = await graph_client.execute_async(
