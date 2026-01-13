@@ -1,26 +1,57 @@
 {
-    "config": {
-        "abort": {
-            "already_configured": "Already configured stop/route",
-            "invalid_destination": "Destination is invalid!",
-            "invalid_name_code": "Stop Name or Stop Code is invalid!",
-            "invalid_route": "Route is invalid!"
-        },
-        "error": {
-            "cannot_connect": "Failed to connect",
-            "unknown": "Unexpected error"
-        },
-        "step": {
-            "user": {
-                "data": {
-                    "apikey": "API key",
-                    "destination": "Destination",
-                    "route": "Route",
-                    "user_name_code": "STOP Name / Code"
-                },
-                "description": "HSL-HRT Configuration Parameters",
-                "title": "Helsinki Regional Transport"
-            }
+  "config": {
+    "step": {
+      "apikey": {
+        "title": "Digitransit API Key",
+        "description": "Enter your Digitransit API key. You can create one at https://portal-api.digitransit.fi/",
+        "data": {
+          "apikey": "API Key"
         }
+      },
+      "user": {
+        "title": "Select Stop",
+        "description": "Enter a partial stop name (e.g. 'Kamppi') or a GTFS ID (e.g. 'HSL:1303298').",
+        "data": {
+          "stop_query": "Stop name or GTFS ID"
+        }
+      },
+      "pick_stop": {
+        "title": "Choose Stop",
+        "description": "Select the correct stop from the list.",
+        "data": {
+          "stop": "Stop"
+        }
+      },
+      "pick_route": {
+        "title": "Choose Route",
+        "description": "Select a route serving this stop. Choose 'ALL' to include all routes.",
+        "data": {
+          "route": "Route"
+        }
+      },
+      "pick_dest": {
+        "title": "Choose Destination",
+        "description": "Select a destination for this route. Choose 'ALL' to include all destinations.",
+        "data": {
+          "dest": "Destination"
+        }
+      }
+    },
+    "error": {
+      "missing_apikey": "API key is required.",
+      "no_stops_found": "No stops found matching your search.",
+      "no_routes_found": "No routes found for this stop."
+    },
+    "abort": {
+      "missing_apikey": "API key is required to continue.",
+      "no_routes_found": "No routes available for this stop."
     }
+  },
+  "entity": {
+    "sensor": {
+      "hslhrt": {
+        "name": "HSL HRT Sensor"
+      }
+    }
+  }
 }
