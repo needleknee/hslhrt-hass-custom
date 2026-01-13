@@ -4,7 +4,6 @@ import voluptuous as vol
 import re
 
 from homeassistant import config_entries
-from homeassistant.core import callback
 
 from . import base_unique_id
 from .helpers import (
@@ -17,6 +16,8 @@ from .const import (
     _LOGGER,
     DOMAIN,
     STOP_GTFS,
+    STOP_NAME,
+    STOP_CODE,
     ALL,
     ROUTE,
     DESTINATION,
@@ -73,6 +74,18 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     
             if GTFS_REGEX.match(self.stop_query):
                 self.selected_stop = self.stop_query
+
+                # Fetch stop info for naming
+                stops = await lookup_stops(self.existing_key, self.stop_query)
+                if stops:
+                    s = stops[0]
+                    self.selected_stop_name = s["name"]
+                    self.selected_stop_code = s["code"]
+                else:
+                    # Fallback if lookup fails
+                    self.selected_stop_name = self.stop_query
+                    self.selected_stop_code = ""
+                
                 return await self.async_step_pick_route()
     
             return await self.async_step_pick_stop()
@@ -103,12 +116,19 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         self.stops = {
-            f"{s['name']} ({s['code']})": s["gtfsId"]
+            f"{s['name']} ({s['code']})": {
+                "gtfsId": s["gtfsId"],
+                "name": s["name"],
+                "code": s["code"],
+            }
             for s in stops
         }
 
         if user_input is not None:
             self.selected_stop = self.stops[user_input["stop"]]
+            self.selected_stop = selected["gtfsId"]
+            self.selected_stop_name = selected["name"]
+            self.selected_stop_code = selected["code"]
             return await self.async_step_pick_route()
 
         return self.async_show_form(
@@ -182,12 +202,22 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
 
-        title = f"{self.selected_stop} {self.selected_route}"
-    
+        # Build a clean, human-friendly title
+        stop_label = f"{self.selected_stop_name} ({self.selected_stop_code})"
+        
+        if self.selected_route == ALL:
+            title = f"{stop_label} – ALL"
+        elif self.selected_dest == ALL:
+            title = f"{stop_label} – {self.selected_route} (ALL)"
+        else:
+            title = f"{stop_label} – {self.selected_route} → {self.selected_dest}"
+
         return self.async_create_entry(
             title=title, 
             data={
                 STOP_GTFS: self.selected_stop,
+                STOP_NAME: self.selected_stop_name,
+                STOP_CODE: self.selected_stop_code,
                 ROUTE: self.selected_route,
                 DESTINATION: self.selected_dest,
                 APIKEY: self.existing_key,
