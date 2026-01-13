@@ -44,13 +44,17 @@ graph_client = GraphqlClient(endpoint=BASE_URL)
 
 
 def base_unique_id(gtfs_id, route=None, dest=None):
-    """Return unique id for entries in configuration."""
-    if (route is not None) and (route.lower() != ALL):
-        return f"{gtfs_id} {route.upper()}"
-    elif (dest is not None) and (dest.lower() != ALL):
-        return f"{gtfs_id} {dest.upper()}"
+    """Return a globally unique ID for config entries and entities."""
+    route_part = (route or "ALL").upper()
+    dest_part = (dest or "ALL").upper()
+
+    # Normalize ALL logic
+    if route_part == "ALL" and dest_part != "ALL":
+        return f"{gtfs_id}_{dest_part}"
+    elif route_part != "ALL":
+        return f"{gtfs_id}_{route_part}"
     else:
-        return f"{gtfs_id} ALL"
+        return f"{gtfs_id}_ALL"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
