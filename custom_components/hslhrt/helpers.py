@@ -39,6 +39,7 @@ async def lookup_stops(apikey: str, name_query: str):
         variables = {"id": attempt}
 
         try:
+            _LOGGER.warning("lookup_stops variables=%s", variables)
             data = await graph_client.execute_async(
                 query=STOP_ID_QUERY,
                 variables=variables
