@@ -1,0 +1,57 @@
+{
+  "config": {
+    "step": {
+      "apikey": {
+        "title": "Digitransit API-avain",
+        "description": "Syötä Digitransitin API-avain. Voit luoda avaimen osoitteessa https://portal-api.digitransit.fi/",
+        "data": {
+          "apikey": "API-avain"
+        }
+      },
+      "user": {
+        "title": "Valitse pysäkki",
+        "description": "Syötä pysäkin nimi (esim. 'Kamppi') tai GTFS-tunnus (esim. 'HSL:1303298').",
+        "data": {
+          "stop_query": "Pysäkin nimi tai GTFS-tunnus"
+        }
+      },
+      "pick_stop": {
+        "title": "Valitse pysäkki",
+        "description": "Valitse oikea pysäkki listasta.",
+        "data": {
+          "stop": "Pysäkki"
+        }
+      },
+      "pick_route": {
+        "title": "Valitse linja",
+        "description": "Valitse pysäkkiä palveleva linja. Valitse 'ALL' sisällyttääksesi kaikki linjat.",
+        "data": {
+          "route": "Linja"
+        }
+      },
+      "pick_dest": {
+        "title": "Valitse suunta",
+        "description": "Valitse linjan määränpää. Valitse 'ALL' sisällyttääksesi kaikki suunnat.",
+        "data": {
+          "dest": "Määränpää"
+        }
+      }
+    },
+    "error": {
+      "missing_apikey": "API-avain vaaditaan.",
+      "no_stops_found": "Hakua vastaavia pysäkkejä ei löytynyt.",
+      "no_routes_found": "Tälle pysäkille ei löytynyt linjoja."
+    },
+    "abort": {
+      "missing_apikey": "API-avain vaaditaan jatkamiseksi.",
+      "no_routes_found": "Tälle pysäkille ei ole saatavilla linjoja."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "hslhrt": {
+        "name": "HSL HRT -sensori"
+      }
+    }
+  }
+}
