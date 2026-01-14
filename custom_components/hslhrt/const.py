@@ -52,7 +52,7 @@ SECS_IN_DAY = 24 * 60 * 60
 
 STOP_ID_QUERY = """
     query ($id: String!) {
-        stops (name: $name_code) {
+        stops (name: $id) {
             gtfsId
             name
             code
