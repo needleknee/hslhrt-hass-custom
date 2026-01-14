@@ -103,40 +103,54 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         apikey = self.existing_key
         if not apikey:
             return self.async_abort(reason="missing_apikey")
-
-        stops = await lookup_stops(apikey, self.stop_query)
-
-        if not stops:
-            return self.async_show_form(
-                step_id="user",
-                errors={"base": "no_stops_found"},
-                data_schema=vol.Schema({
-                    vol.Required("stop_query"): str
-                })
-            )
-
-        self.stops = {
-            f"{s['name']} ({s['code']})": {
-                "gtfsId": s["gtfsId"],
-                "name": s["name"],
-                "code": s["code"],
+    
+        # Only fetch stops on first render
+        if user_input is None:
+            stops = await lookup_stops(apikey, self.stop_query)
+    
+            if not stops:
+                return self.async_show_form(
+                    step_id="user",
+                    errors={"base": "no_stops_found"},
+                    data_schema=vol.Schema({
+                        vol.Required("stop_query"): str
+                    })
+                )
+    
+            # Build unique labels
+            self.stops = {
+                f"{s['name']} ({s['code'] or s['gtfsId']})": {
+                    "gtfsId": s["gtfsId"],
+                    "name": s["name"],
+                    "code": s["code"],
+                }
+                for s in stops
             }
-            for s in stops
-        }
+    
+            return self.async_show_form(
+                step_id="pick_stop",
+                data_schema=vol.Schema({
+                    vol.Required("stop"): vol.In(list(self.stops.keys()))
+                }),
+                errors={}
+            )
+    
+        # POST handling
+        stop_key = user_input.get("stop")
+        if stop_key not in self.stops:
+            return self.async_show_form(
+                step_id="pick_stop",
+                data_schema=vol.Schema({
+                    vol.Required("stop"): vol.In(list(self.stops.keys()))
+                }),
+                errors={"stop": "invalid_stop"}
+            )
+    
+        selected = self.stops[stop_key]
+        self.selected_stop = selected["gtfsId"]
+    
+        return await self.async_step_pick_route()
 
-        if user_input is not None:
-            self.selected_stop = self.stops[user_input["stop"]]
-            self.selected_stop = selected["gtfsId"]
-            self.selected_stop_name = selected["name"]
-            self.selected_stop_code = selected["code"]
-            return await self.async_step_pick_route()
-
-        return self.async_show_form(
-            step_id="pick_stop",
-            data_schema=vol.Schema({
-                vol.Required("stop"): vol.In(list(self.stops.keys()))
-            }),
-        )
 
     async def async_step_pick_route(self, user_input=None):
         """Show dropdown of routes for the selected stop."""
