@@ -38,17 +38,11 @@ async def lookup_stops(apikey: str, name_query: str):
     for attempt in (name_query, name_query.upper(), name_query.lower()):
         variables = {"id": attempt}
 
-        try:
-            _LOGGER.warning("lookup_stops query=%s", STOP_ID_QUERY)
-            _LOGGER.warning("lookup_stops variables=%s", variables)
-            
+        try:          
             data = await graph_client.execute_async(
                 query=STOP_ID_QUERY,
                 variables=variables
-            )
-
-            _LOGGER.warning("lookup_stops response=%s", data)
-            
+            )            
         except Exception as e:
             _LOGGER.error("Stop lookup failed for '%s': %s", attempt, e)
             continue
