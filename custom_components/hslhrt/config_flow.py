@@ -147,7 +147,10 @@ class HSLHRTConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             )
     
         selected = self.stops[stop_key]
+        
         self.selected_stop = selected["gtfsId"]
+        self.selected_stop_name = selected["name"]
+        self.selected_stop_code = selected["code"]
     
         return await self.async_step_pick_route()
 
